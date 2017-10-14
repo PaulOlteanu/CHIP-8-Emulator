@@ -26,7 +26,7 @@ unsigned char font[16 * 5] =
 unsigned short opcode;
 unsigned char memory[4096];
 unsigned char V[16]; // Registers
-unsigned short ip;
+unsigned short I;
 unsigned short pc;
 
 unsigned char screen[64 * 32];
@@ -50,8 +50,11 @@ void emulateCycle();
 int main(int argc, char *argv[]) {
     char *filename = argv[1];
     if(initialize(filename) != 0) {
+        printf("Could not initialize emulator :(\n");
         return -1;
     }
+
+    printf("Successfully initialized\n");
 
     // TODO: Limit speed of emulation
     while(!quit) {
@@ -69,7 +72,7 @@ int main(int argc, char *argv[]) {
 int initialize(char *filename) {
     pc = 0x200; // The program starts at location 512, anything before that is reserved
     opcode = 0;
-    ip = 0;
+    I = 0;
     sp = 0;
 
     // Load the font from the font array into reserved memory
@@ -88,8 +91,7 @@ int initialize(char *filename) {
 
     int counter = 512;
     while(!feof(file)) {
-        fread(&buf, 1, 1, file);
-        memory[counter] = *buf;
+        fread(&memory[counter], 1, 1, file);
         counter++;
     }
 
@@ -108,6 +110,7 @@ void emulateCycle() {
             switch(opcode & 0x00FF) {
                 case 0x00E0:
                     clearScreen = true;
+                    pc += 2;
                     break;
 
                 case 0x00EE:
@@ -121,7 +124,130 @@ void emulateCycle() {
 
             break;
 
+        case 0x1000:
+            pc = opcode & 0x0FFF;
+            break;
+
+        case 0x2000:
+            stack[sp] = pc;
+            sp++;
+            pc = opcode & 0x0FFF;
+            break;
+
+        case 0x3000:
+            if(V[(opcode & 0x0F00) >> 8] == opcode & 0x00FF) {
+                pc += 2;
+            }
+            pc += 2;
+            break;
+
+        case 0x4000:
+            if(V[(opcode & 0x0F00) >> 8] != opcode & 0x00FF) {
+                pc += 2;
+            }
+            pc += 2;
+            break;
+
+        case 0x5000:
+            if(V[(opcode & 0x0F00) >> 8] == V[(opcode & 0x00F0) >> 4]) {
+                pc += 2;
+            }
+            pc += 2;
+            break;
+
+        case 0x6000:
+            V[(opcode & 0x0F00) >> 8] = (opcode & 0x00FF);
+            pc += 2;
+            break;
+
+        case 0x7000:
+            V[(opcode & 0x0F00) >> 8] += (opcode & 0x00FF);
+            pc += 2;
+            break;
+
+        case 0x8000:
+            switch(opcode & 0x000F) {
+                case 0x000:
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4];
+                    break;
+
+                case 0x001:
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x0F00) >> 8] | V[(opcode & 0x00F0) >> 4];
+                    break;
+
+                case 0x002:
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x0F00) >> 8] & V[(opcode & 0x00F0) >> 4];
+                    break;
+
+                case 0x003:
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x0F00) >> 8] ^ V[(opcode & 0x00F0) >> 4];
+                    break;
+
+                // TODO: Add explanation for this
+                // Replace with casts to int then answer comparison
+                case 0x004:
+                    if(V[(opcode & 0x00F0) >> 4] > (0xFF - V[(opcode & 0x0F00) >> 8])) {
+                        V[0xF] = 1;
+                    } else {
+                        V[0xF] = 0;
+                    }
+                    V[(opcode & 0x0F00) >> 8] += V[(opcode & 0x00F0) >> 4];
+
+                    break;
+
+                case 0x005:
+                    if(V[(opcode & 0x0F00) >> 8] < V[(opcode & 0x00F0) >> 4]) {
+                        V[0xF] = 1;
+                    } else {
+                        V[0xF] = 0;
+                    }
+
+                    V[(opcode & 0x0F00) >> 8] -= V[(opcode & 0x00F0) >> 4];
+
+                    break;
+
+                case 0x0006:
+                    V[0xF] = (V[(opcode & 0x00F0) >> 4] & 1);
+                    V[(opcode & 0x00F0) >> 4] = (V[(opcode & 0x00F0) >> 4]) >> 1;
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4];
+
+                    break;
+
+                case 0x0007:
+                    if(V[(opcode & 0x0F00) >> 8] > V[(opcode & 0x00F0) >> 4]) {
+                        V[0xF] = 1;
+                    } else {
+                        V[0xF] = 0;
+                    }
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4] - V[(opcode & 0x0F00) >> 8];
+                    break;
+
+                case 0x000E:
+                    V[0xF] = (V[(opcode & 0x00F0) >> 4] >> 7) & 1;
+                    V[(opcode & 0x00F0) >> 4] = (V[(opcode & 0x00F0) >> 4]) << 1;
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4];
+
+                    break;
+
+                default:
+                    printf("Unknown opcode: 0x%04x", opcode);
+                    break;
+            }
+
+            pc += 2;
+
+            break;
+
+        case 0x9000:
+            if(V[(opcode & 0x0F00) >> 8] != V[(opcode & 0x00F0) >> 4]) {
+                pc += 2;
+            }
+
+            pc += 2;
+            break;
+
         default:
+            printf("Unknown opcode: 0x%04x", opcode);
             break;
     }
 
