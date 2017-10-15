@@ -5,7 +5,16 @@
 
 #include <SDL2/SDL.h>
 
-// TODO: Add explanation for this
+// Characters are 4 pixels wide and 5 tall
+// The top nibble of the byte is used to set the pixels displayed for the character
+// For example, 0 is 0xF0, 0x90, 0x90, 0x90, 0xF0
+// This is shown as:
+// ****    0xF0 = 1111 0000
+// *..*    0x90 = 1001 0000
+// *..*    0x90 = 1001 0000
+// *..*    0x90 = 1001 0000
+// ****    0xF0 = 1111 0000
+// The '*'s correspond to the bits that are set to 1 in the number
 unsigned char font[16 * 5] =
 {
   0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -34,7 +43,6 @@ unsigned short pc;
 
 unsigned char screen[64 * 32];
 
-// Currently useless
 unsigned char delayTimer;
 unsigned char soundTimer;
 
@@ -43,10 +51,10 @@ unsigned short sp;
 
 unsigned char keys[16];
 
-bool quit = false;
-bool redraw = false;
-bool clearScreen = false;
-bool keyWait = false;
+bool quit;
+bool redraw;
+bool clearScreen;
+bool keyWait;
 unsigned char keySpot;
 
 int initialize(char *filename);
@@ -76,6 +84,7 @@ int main(int argc, char *argv[]) {
 
     if (window == NULL) {
         printf("Could not create window: %s\n", SDL_GetError());
+        printf("Could not initialize emulator :(\n");
         return 1;
     }
 
@@ -84,81 +93,84 @@ int main(int argc, char *argv[]) {
 
     if (renderer == NULL) {
         printf("Could not create renderer: %s\n", SDL_GetError());
+        printf("Could not initialize emulator :(\n");
         return 1;
     }
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
 
-    unsigned int previous_time, current_time;
-    previous_time = SDL_GetTicks();
+    unsigned int frameStartTick, frameEndTick, frameChange;
+    unsigned int FPS_CAP = 360;
 
     SDL_Event event;
 
-    // TODO: Limit speed of emulation
     while(!quit) {
-        if (pc >= 2048) {
+        if (pc >= 4096) {
             break;
         }
 
-        current_time = SDL_GetTicks();
+        frameStartTick = SDL_GetTicks();
 
-        if (current_time - previous_time >= 2) {
-            previous_time = current_time;
+        // INPUT
+        if (keyWait) {
+            SDL_Event temp_event;
 
-            // INPUT
-            if (keyWait) {
-                SDL_Event temp_event;
+            while (!SDL_PollEvent(&event) || decodeKey(event.key.keysym.sym) == -1) {}
+            int k = decodeKey(event.key.keysym.sym);
+            V[keySpot] = k;
+            keyWait = false;
+        }
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                quit = true;
+            }
 
-                while (!SDL_PollEvent(&event) || decodeKey(event.key.keysym.sym) == -1) {}
+            if (event.type == SDL_KEYDOWN) {
                 int k = decodeKey(event.key.keysym.sym);
-                V[keySpot] = k;
-                keyWait = false;
-            }
-            while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
-                    quit = true;
-                }
 
-                if (event.type == SDL_KEYDOWN) {
-                    int k = decodeKey(event.key.keysym.sym);
-
-                    if (k != -1) {
-                        keys[k] = true;
-                    }
-                }
-
-                if (event.type == SDL_KEYUP) {
-                    int k = decodeKey(event.key.keysym.sym);
-
-                    if (k != -1) {
-                        keys[k] = false;
-                    }
+                if (k != -1) {
+                    keys[k] = true;
                 }
             }
 
-            emulateCycle();
+            if (event.type == SDL_KEYUP) {
+                int k = decodeKey(event.key.keysym.sym);
 
-            if (clearScreen) {
-                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-                SDL_RenderClear(renderer);
-            }
-
-            // If the draw flag is set, update the screen
-            if (redraw) {
-                for (int i = 0; i < 64 * 32; i++) {
-                    if (screen[i]) {
-                        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                    } else {
-                        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-                    }
-                    SDL_RenderDrawPoint(renderer, i % 64, i / 64);
+                if (k != -1) {
+                    keys[k] = false;
                 }
-
-                SDL_RenderPresent(renderer);
-
-                redraw = false;
             }
+        }
+
+        emulateCycle();
+
+        if (clearScreen) {
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            SDL_RenderClear(renderer);
+        }
+
+        // If the draw flag is set, update the screen
+        if (redraw) {
+            for (int i = 0; i < 64 * 32; i++) {
+                if (screen[i]) {
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                } else {
+                    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+                }
+                SDL_RenderDrawPoint(renderer, i % 64, i / 64);
+            }
+
+            SDL_RenderPresent(renderer);
+
+            redraw = false;
+        }
+
+        frameEndTick = SDL_GetTicks();
+
+        frameChange = frameEndTick - frameStartTick;
+        if(frameChange < 1000 / FPS_CAP) {
+            SDL_Delay((1000 / FPS_CAP) - frameChange);
         }
     }
 
@@ -176,6 +188,7 @@ int initialize(char *filename) {
     redraw = false;
     clearScreen = false;
     keyWait = false;
+    keySpot = 0;
 
     srand(time(NULL));
 
@@ -475,7 +488,7 @@ void emulateCycle() {
                     break;
 
                 case 0x0055:
-                    for (int i = 0; i <= V[(opcode & 0x0F00) >> 8]; i++) {
+                    for (int i = 0; i <= ((opcode & 0x0F00) >> 8); i++) {
                         memory[I + i] = V[i];
                     }
 
@@ -483,7 +496,7 @@ void emulateCycle() {
                     break;
 
                 case 0x0065:
-                    for (int i = 0; i <= V[(opcode & 0x0F00) >> 8]; i++) {
+                    for (int i = 0; i <= ((opcode & 0x0F00) >> 8); i++) {
                         V[i] = memory[I + i];
                     }
                     I += ((opcode & 0x0F00) >> 8) + 1;
@@ -515,7 +528,7 @@ void emulateCycle() {
     return;
 }
 
-// TODO: Make this not retarded
+// This is disgusting, but the only way to do it
 int decodeKey(SDL_Keycode k) {
     switch (k) {
     case SDLK_1:
