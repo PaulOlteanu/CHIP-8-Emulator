@@ -61,6 +61,8 @@ int initialize(char *filename);
 void emulateCycle();
 int decodeKey(SDL_Keycode);
 
+int SCALE = 5;
+
 int main(int argc, char *argv[]) {
     char *filename = argv[1];
     if(initialize(filename) != 0) {
@@ -77,8 +79,8 @@ int main(int argc, char *argv[]) {
         "CHIP-8",                // Title
         SDL_WINDOWPOS_UNDEFINED, // Initial x position
         SDL_WINDOWPOS_UNDEFINED, // Initial y position
-        64,                      // Width
-        32,                      // Height
+        64 * SCALE,                      // Width
+        32 * SCALE,                      // Height
         SDL_WINDOW_OPENGL        // Flags
     );
 
@@ -158,11 +160,15 @@ int main(int argc, char *argv[]) {
                 } else {
                     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
                 }
-                SDL_RenderDrawPoint(renderer, i % 64, i / 64);
+
+                // This scales up the display
+                // There's no way to do this without it being O(N^2) that I know of :(
+                for(int j = 0; j < SCALE * SCALE; j++) {
+                    SDL_RenderDrawPoint(renderer, (i % 64) * SCALE + (j % SCALE),     (i / 64) * SCALE + (j / SCALE));
+                }
             }
 
             SDL_RenderPresent(renderer);
-
             redraw = false;
         }
 
