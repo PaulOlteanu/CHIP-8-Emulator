@@ -5,6 +5,8 @@
 
 #include <SDL2/SDL.h>
 
+#define I_MAX(A, B) (A > B ? A : B)
+
 // Characters are 4 pixels wide and 5 tall
 // The top nibble of the byte is used to set the pixels displayed for the character
 // For example, 0 is 0xF0, 0x90, 0x90, 0x90, 0xF0
@@ -15,7 +17,7 @@
 // *..*    0x90 = 1001 0000
 // ****    0xF0 = 1111 0000
 // The '*'s correspond to the bits that are set to 1 in the number
-unsigned char font[16 * 5] =
+const unsigned char font[16 * 5] =
 {
   0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
   0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -35,166 +37,184 @@ unsigned char font[16 * 5] =
   0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
+// MEMORY THINGS ===============================================================
 unsigned short opcode;
-unsigned char memory[4096];
-unsigned char V[16]; // Registers. V[0xF] is the carry flag
+unsigned char  memory[4096];
+unsigned char  V[16]; // Registers. V[0xF] is the carry flag
 unsigned short I;
-unsigned short pc;
-
-unsigned char screen[64 * 32];
-
-unsigned char delayTimer;
-unsigned char soundTimer;
-
+unsigned short pc; // Program counter
 unsigned short stack[24];
-unsigned short sp;
+unsigned short sp; // Stack pointer
 
-unsigned char keys[16];
+// DISPLAY THINGS ==============================================================
+unsigned char      screen[64 * 32];
+const unsigned int FPS_CAP = 360;
+const int          SCALE = 5;
 
-bool quit;
 bool redraw;
-bool clearScreen;
-bool keyWait;
+
+// KEYBOARD THINGS =============================================================
+unsigned char keys[16];
+bool          keyWait;
 unsigned char keySpot;
 
+// MISC THINGS =================================================================
+unsigned char delayTimer;
+unsigned char soundTimer;
+bool quit;
+
+// FUNCTION PROTOTYPES =========================================================
+int decodeKey(SDL_Keycode);
 int initialize(char *filename);
 void emulateCycle();
-int decodeKey(SDL_Keycode);
-
-int SCALE = 5;
 
 int main(int argc, char *argv[]) {
+    if(argc != 2) {
+        printf("Incorrect usage. Expected a filename for the rom\n");
+        return -1;
+    }
+
+    // TODO: Maybe get the scaling factor from the user
     char *filename = argv[1];
     if(initialize(filename) != 0) {
         printf("Could not initialize emulator :(\n");
         return -1;
     }
 
-    printf("Successfully initialized\n");
+    if(SDL_Init(SDL_INIT_VIDEO) != 0) {
+        printf("Could not start SDL\n");
+        printf("Could not initialize emulator :(\n");
+        SDL_Quit();
+        return -1;
+    }
 
     SDL_Window *window;
-
-    SDL_Init(SDL_INIT_VIDEO);
     window = SDL_CreateWindow(
         "CHIP-8",                // Title
         SDL_WINDOWPOS_UNDEFINED, // Initial x position
         SDL_WINDOWPOS_UNDEFINED, // Initial y position
-        64 * SCALE,                      // Width
-        32 * SCALE,                      // Height
+        64 * SCALE,              // Width
+        32 * SCALE,              // Height
         SDL_WINDOW_OPENGL        // Flags
     );
-
     if (window == NULL) {
-        printf("Could not create window: %s\n", SDL_GetError());
+        printf("SDL Error: %s\n", SDL_GetError());
         printf("Could not initialize emulator :(\n");
+        SDL_DestroyWindow(window);
+        SDL_Quit();
         return 1;
     }
 
     SDL_Renderer *renderer;
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-
     if (renderer == NULL) {
-        printf("Could not create renderer: %s\n", SDL_GetError());
+        printf("SDL Error: %s\n", SDL_GetError());
         printf("Could not initialize emulator :(\n");
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
         return 1;
     }
+
+    printf("Successfully initialized\n");
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
 
-    unsigned int frameStartTick, frameEndTick, frameChange;
-    unsigned int FPS_CAP = 360;
+    // For limiting FPS
+    unsigned int frameStartTick;
+    unsigned int frameEndTick;
+    unsigned int frameChange;
 
+    // Rectangle for drawing pixels? Yes, because it makes scaling up the display O(1) (in this code)
+    SDL_Rect pixel;
+    int renderColour;
+
+    // The type of key event that happened, and the key that was pressed
     SDL_Event event;
+    int changedKey;
 
     while(!quit) {
         if (pc >= 4096) {
-            break;
+            printf("Error: Program out of bounds\n");
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return -1;
         }
 
+        // This is for later calculating how long this frame took
         frameStartTick = SDL_GetTicks();
 
-        // INPUT
+        // INPUT HANDLING
         if (keyWait) {
-            SDL_Event temp_event;
-
-            while (!SDL_PollEvent(&event) || decodeKey(event.key.keysym.sym) == -1) {}
-            int k = decodeKey(event.key.keysym.sym);
-            V[keySpot] = k;
+            while (!SDL_PollEvent(&event) || decodeKey(event.key.keysym.sym) == -1 || event.type != SDL_KEYDOWN) {}
+            changedKey = decodeKey(event.key.keysym.sym);
+            V[keySpot] = changedKey;
             keyWait = false;
         }
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 quit = true;
-            }
-
-            if (event.type == SDL_KEYDOWN) {
-                int k = decodeKey(event.key.keysym.sym);
-
-                if (k != -1) {
-                    keys[k] = true;
-                }
-            }
-
-            if (event.type == SDL_KEYUP) {
-                int k = decodeKey(event.key.keysym.sym);
-
-                if (k != -1) {
-                    keys[k] = false;
+            } else if(event.type == SDL_KEYDOWN || event.type == SDL_KEYUP){
+                changedKey = decodeKey(event.key.keysym.sym);
+                if (changedKey != -1) {
+                    // If the event is a keydown, set the key to true in the array, otherwise, false
+                    keys[changedKey] = (event.type == SDL_KEYDOWN);
                 }
             }
         }
 
         emulateCycle();
 
-        if (clearScreen) {
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-            SDL_RenderClear(renderer);
-        }
-
-        // If the draw flag is set, update the screen
         if (redraw) {
             for (int i = 0; i < 64 * 32; i++) {
-                if (screen[i]) {
-                    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                } else {
-                    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-                }
+                // Render colour is either 255 if screen[i] == 1 or 0 if screen[i] == 0
+                // The I_MAX ensures that pixels are never 100% black
+                renderColour = I_MAX(255 * screen[i], 35);
+                SDL_SetRenderDrawColor(renderer, renderColour, renderColour, renderColour, renderColour);
 
-                // This scales up the display
-                // There's no way to do this without it being O(N^2) that I know of :(
-                for(int j = 0; j < SCALE * SCALE; j++) {
-                    SDL_RenderDrawPoint(renderer, (i % 64) * SCALE + (j % SCALE),     (i / 64) * SCALE + (j / SCALE));
-                }
+                pixel.x = (i % 64) * SCALE;
+                pixel.y = (i / 64) * SCALE;
+                pixel.w = SCALE;
+                pixel.h = SCALE;
+
+                SDL_RenderFillRect(renderer, &pixel);
             }
 
             SDL_RenderPresent(renderer);
             redraw = false;
         }
 
+        // Limit the FPS
+        // Every frame should take (1000 ms) / FPS_CAP ticks to complete
+        // If they take less, sleep for the number of ticks left over
         frameEndTick = SDL_GetTicks();
-
         frameChange = frameEndTick - frameStartTick;
         if(frameChange < 1000 / FPS_CAP) {
             SDL_Delay((1000 / FPS_CAP) - frameChange);
         }
     }
 
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }
 
 int initialize(char *filename) {
-    pc = 0x200; // The program starts at location 512 aka 0x200, anything before that is reserved
-    opcode = 0;
-    I = 0;
-    sp = 0;
+    // The program starts at location 512 aka 0x200, anything before that is reserved
+    pc = 0x200;
+    I          = 0;
+    sp         = 0;
+    opcode     = 0;
+    keySpot    = 0;
     delayTimer = 0;
     soundTimer = 0;
-    quit = false;
-    redraw = false;
-    clearScreen = false;
-    keyWait = false;
-    keySpot = 0;
+    keyWait    = false;
+    redraw     = false;
+    quit       = false;
 
     srand(time(NULL));
 
@@ -217,21 +237,19 @@ int initialize(char *filename) {
 
     // Read the program from the file into memory
     FILE *file = fopen(filename, "rb");
-
     if(!file) {
+        printf("Could not find ROM\n");
         return -1;
     }
 
-    unsigned char *buf;
-
-    int counter = 512;
+    // 0x0200 == 512 This is the memory location where the program starts
+    int counter = 0x0200;
     while(!feof(file)) {
         fread(&memory[counter], 1, 1, file);
         counter++;
     }
 
     fclose(file);
-
     return 0;
 }
 
@@ -239,29 +257,28 @@ void emulateCycle() {
     // CHIP-8 is big-endian so memory[pc] is the "left" half of the opcode
     opcode = (memory[pc] << 8) | memory[pc + 1];
 
-    printf("OPCODE: 0x%04x\n", opcode);
-
     // Switch on the leftmost nibble of the opcode
     switch(opcode & 0xF000) {
         case 0x0000:
             switch(opcode & 0x00FF) {
                 case 0x00E0:
-                    clearScreen = true;
-                    pc += 2;
+                    for(int i = 0; i < 64 * 32; i++) {
+                        screen[i] = 0;
+                    }
+                    redraw = true;
                     break;
 
                 case 0x00EE:
                     sp--;
                     pc = stack[sp];
-                    pc += 2;
                     break;
 
                 default:
                     printf("Unknown opcode: 0x%04x\n", opcode);
-                    pc += 2;
                     break;
             }
 
+            pc += 2;
             break;
 
         case 0x1000:
@@ -323,16 +340,14 @@ void emulateCycle() {
                     V[(opcode & 0x0F00) >> 8] ^= V[(opcode & 0x00F0) >> 4];
                     break;
 
-                // TODO: Add explanation for this
-                // Replace with casts to int then answer comparison
                 case 0x0004:
+                    // This checks for overflow by checking if one of the operands is greater than the max 8 bit value minus the other operand
                     if(V[(opcode & 0x00F0) >> 4] > (0xFF - V[(opcode & 0x0F00) >> 8])) {
                         V[0xF] = 1;
                     } else {
                         V[0xF] = 0;
                     }
                     V[(opcode & 0x0F00) >> 8] += V[(opcode & 0x00F0) >> 4];
-
                     break;
 
                 case 0x0005:
@@ -341,16 +356,14 @@ void emulateCycle() {
                     } else {
                         V[0xF] = 1;
                     }
-
                     V[(opcode & 0x0F00) >> 8] -= V[(opcode & 0x00F0) >> 4];
-
                     break;
 
+                // I think this is technically inaccurate since the original implementation did something different
+                // Most programs written for the CHIP-8 assume this opcode works like this though
                 case 0x0006:
                     V[0xF] = (V[(opcode & 0x0F00) >> 8] & 1);
                     V[(opcode & 0x0F00) >> 8] = (V[(opcode & 0x0F00) >> 8]) >> 1;
-                    /* V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4]; */
-
                     break;
 
                 case 0x0007:
@@ -360,31 +373,26 @@ void emulateCycle() {
                         V[0xF] = 1;
                     }
                     V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4] - V[(opcode & 0x0F00) >> 8];
-
                     break;
 
+                // See comment above instruction 0x8XY6
                 case 0x000E:
                     V[0xF] = (V[(opcode & 0x0F00) >> 8] >> 7) & 1;
                     V[(opcode & 0x0F00) >> 8] = (V[(opcode & 0x0F00) >> 8]) << 1;
-                    /* V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4]; */
-
                     break;
 
                 default:
                     printf("Unknown opcode: 0x%04x\n", opcode);
-                    pc += 2;
                     break;
             }
 
             pc += 2;
-
             break;
 
         case 0x9000:
             if(V[(opcode & 0x0F00) >> 8] != V[(opcode & 0x00F0) >> 4]) {
                 pc += 2;
             }
-
             pc += 2;
             break;
 
@@ -401,7 +409,6 @@ void emulateCycle() {
             ;
             int n = (rand() % (0xFF + 1));
             V[(opcode & 0x0F00) >> 8] = (n & (opcode & 0x00FF));
-
             pc += 2;
             break;
 
@@ -426,7 +433,6 @@ void emulateCycle() {
                     }
                 }
             }
-
             redraw = true;
             pc += 2;
             break;
@@ -447,11 +453,9 @@ void emulateCycle() {
 
                 default:
                     printf("Unknown opcode: 0x%04x\n", opcode);
-                    pc += 2;
                     break;
 
             }
-
             pc += 2;
             break;
 
@@ -487,8 +491,9 @@ void emulateCycle() {
                     I = V[(opcode & 0x0F00) >> 8] * 0x5;
                     break;
 
+                // TODO: Explain this
                 case 0x0033:
-                    memory[I]     = V[(opcode & 0x0F00) >> 8] / 100;
+                    memory[I]     =  V[(opcode & 0x0F00) >> 8] / 100;
                     memory[I + 1] = (V[(opcode & 0x0F00) >> 8] / 10) % 10;
                     memory[I + 2] = (V[(opcode & 0x0F00) >> 8] % 100) % 10;
                     break;
@@ -534,57 +539,41 @@ void emulateCycle() {
     return;
 }
 
-// This is disgusting, but the only way to do it
+// This is disgusting, but probably the simplest (and best) way to do it
 int decodeKey(SDL_Keycode k) {
     switch (k) {
     case SDLK_1:
         return 0x1;
-
     case SDLK_2:
         return 0x2;
-
     case SDLK_3:
         return 0x3;
-
     case SDLK_4:
         return 0xC;
-
     case SDLK_q:
         return 0x4;
-
     case SDLK_w:
         return 0x5;
-
     case SDLK_e:
         return 0x6;
-
     case SDLK_r:
         return 0xD;
-
     case SDLK_a:
         return 0x7;
-
     case SDLK_s:
         return 0x8;
-
     case SDLK_d:
         return 0x9;
-
     case SDLK_f:
         return 0xE;
-
     case SDLK_z:
         return 0xA;
-
     case SDLK_x:
         return 0x0;
-
     case SDLK_c:
         return 0xB;
-
     case SDLK_v:
         return 0xF;
-
     default:
         return -1;
     }
