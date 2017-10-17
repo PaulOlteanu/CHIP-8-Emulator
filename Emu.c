@@ -1,14 +1,15 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <SDL2/SDL.h>
 
 #include "Chip8.c"
 
-int decodeKey(SDL_Keycode);
+int8_t decodeKey(SDL_Keycode);
 
 int main(int argc, char *argv[]) {
-    const int SCALE = 5;
-    const int FPS_CAP = 360;
+    const unsigned int SCALE = 5;
+    const unsigned int FPS_CAP = 360;
 
     srand(time(NULL));
 
@@ -65,17 +66,17 @@ int main(int argc, char *argv[]) {
     SDL_RenderClear(renderer);
 
     // For limiting FPS
-    unsigned int frameStartTick;
-    unsigned int frameEndTick;
-    unsigned int frameChange;
+    uint32_t frameStartTick;
+    uint32_t frameEndTick;
+    uint32_t frameChange;
 
-    // Rectangle for drawing pixels? Yes, because it makes scaling up the display O(1) (in this code)
+    // Rectangle for drawing pixels? Yes, because it makes my code for scaling up the display O(1)
     SDL_Rect pixel;
-    char renderColour;
+    int renderColour;
 
     // The type of key event that happened, and the key that was pressed
     SDL_Event event;
-    int changedKey;
+    int8_t changedKey;
 
     bool quit = false;
 
@@ -149,7 +150,7 @@ int main(int argc, char *argv[]) {
 }
 
 // This is disgusting, but probably the simplest (and best) way to do it
-int decodeKey(SDL_Keycode k) {
+int8_t decodeKey(SDL_Keycode k) {
     switch (k) {
     case SDLK_1:
         return 0x1;

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "Chip8.h"
 
@@ -18,7 +19,7 @@
 // *..*    0x90 = 1001 0000
 // ****    0xF0 = 1111 0000
 // The '*'s correspond to the bits that are set to 1 in the number
-const unsigned char font[16 * 5] =
+const uint8_t font[16 * 5] =
 {
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -87,7 +88,7 @@ int initialize(chip8 *c8, char *filename) {
 }
 
 void emulateCycle(chip8 *c8) {
-    // CHIP-8 is big-endian so c8->memory[pc] is the "left" half of the c8->opcode
+    // CHIP-8 is big-endian so memory[pc] is the "left" half of the opcode
     c8->opcode = (c8->memory[c8->programCounter] << 8) | c8->memory[c8->programCounter + 1];
 
     // Switch on the leftmost nibble of the c8->opcode
@@ -248,10 +249,10 @@ void emulateCycle(chip8 *c8) {
         // TODO: Make this not copy-pasted shit
         case 0xD000:
             ;
-            unsigned short x = c8->V[(c8->opcode & 0x0F00) >> 8];
-            unsigned short y = c8->V[(c8->opcode & 0x00F0) >> 4];
-            unsigned short height = c8->opcode & 0x000F;
-            unsigned short pixel;
+            uint16_t x = c8->V[(c8->opcode & 0x0F00) >> 8];
+            uint16_t y = c8->V[(c8->opcode & 0x00F0) >> 4];
+            uint16_t height = c8->opcode & 0x000F;
+            uint16_t pixel;
 
             c8->V[0xF] = 0;
             for (int ypos = 0; ypos < height; ypos++) {
