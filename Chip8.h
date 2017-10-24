@@ -27,6 +27,6 @@ typedef struct {
 } chip8;
 
 int initialize(chip8 *c8, char *filename);
-void emulateCycle(chip8 *c8);
+int emulateCycle(chip8 *c8);
 
 #endif // CHIP8_H_INCLUDE

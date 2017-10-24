@@ -81,14 +81,6 @@ int main(int argc, char *argv[]) {
     bool quit = false;
 
     while(!quit) {
-        if (emulator.programCounter >= 4096) {
-            printf("Error: Program out of bounds\n");
-            SDL_DestroyRenderer(renderer);
-            SDL_DestroyWindow(window);
-            SDL_Quit();
-            return -1;
-        }
-
         // This is for later calculating how long this frame took
         frameStartTick = SDL_GetTicks();
 
@@ -112,7 +104,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        emulateCycle(&emulator);
+        if (emulateCycle(&emulator) == -1) {
+            printf("Error: Program out of bounds\n");
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return -1;
+        }
 
         if (emulator.awaitingRedraw) {
             for (int i = 0; i < 64 * 32; i++) {
