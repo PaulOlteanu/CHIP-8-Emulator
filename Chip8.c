@@ -39,7 +39,7 @@ const uint8_t font[16 * 5] =
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
-int initialize(chip8 *c8, char *filename) {
+int initialize(chip8 *c8, char *filename, bool modernCompat) {
     // The program starts at location 512 aka 0x200, anything before that is reserved
     c8->programCounter = 0x200;
     c8->I              = 0;
@@ -50,6 +50,7 @@ int initialize(chip8 *c8, char *filename) {
     c8->soundTimer     = 0;
     c8->keyWait        = false;
     c8->awaitingRedraw = false;
+    c8->modernCompat   = modernCompat;
 
     // Clear things
     for(int i = 0; i < 64 * 32; i++) {
@@ -98,7 +99,7 @@ int emulateCycle(chip8 *c8) {
     // CHIP-8 is big-endian so memory[pc] is the "left" half of the opcode
     c8->opcode = (c8->memory[c8->programCounter] << 8) | c8->memory[c8->programCounter + 1];
 
-    // Switch on the leftmost nibble of the c8->opcode
+    // Switch on the leftmost nibble of the opcode
     switch(c8->opcode & 0xF000) {
         case 0x0000:
             switch(c8->opcode & 0x00FF) {
@@ -217,9 +218,16 @@ int emulateCycle(chip8 *c8) {
 
                 case 0x0006:
                     // 8XY6: Store the value of register VY shifted right one bit in register VX. Set register VF to the least significant bit prior to the shift
-                    c8->V[0xF] = (c8->V[(c8->opcode & 0x00F0) >> 4] & 1);
-                    c8->V[(c8->opcode & 0x00F0) >> 4] = (c8->V[(c8->opcode & 0x00F0) >> 4]) >> 1;
-                    c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x00F0) >> 4]);
+                    // Historically VY was shifted and the value was copied to VX
+                    // Modern programs (incorrectly) assume VX is shifted
+                    if (c8->modernCompat) {
+                        c8->V[0xF] = (c8->V[(c8->opcode & 0x0F00) >> 8] & 1);
+                        c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x0F00) >> 8]) >> 1;
+                    } else {
+                        c8->V[0xF] = (c8->V[(c8->opcode & 0x00F0) >> 4] & 1);
+                        c8->V[(c8->opcode & 0x00F0) >> 4] = (c8->V[(c8->opcode & 0x00F0) >> 4]) >> 1;
+                        c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x00F0) >> 4]);
+                    }
                     break;
 
                 case 0x0007:
@@ -234,9 +242,16 @@ int emulateCycle(chip8 *c8) {
 
                 case 0x000E:
                     // 8XYE: Store the value of register VY shifted left one bit in register VX. Set register VF to the most significant bit prior to the shift
-                    c8->V[0xF] = (c8->V[(c8->opcode & 0x00F0) >> 4] >> 7) & 1;
-                    c8->V[(c8->opcode & 0x00F0) >> 4] = (c8->V[(c8->opcode & 0x00F0) >> 4]) << 1;
-                    c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x00F0) >> 4]);
+                    // Historically VY was shifted and the value was copied to VX
+                    // Modern programs (incorrectly) assume VX is shifted
+                    if (c8->modernCompat) {
+                        c8->V[0xF] = (c8->V[(c8->opcode & 0x0F00) >> 8] >> 7) & 1;
+                        c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x0F00) >> 8]) << 1;
+                    } else {
+                        c8->V[0xF] = (c8->V[(c8->opcode & 0x00F0) >> 4] >> 7) & 1;
+                        c8->V[(c8->opcode & 0x00F0) >> 4] = (c8->V[(c8->opcode & 0x00F0) >> 4]) << 1;
+                        c8->V[(c8->opcode & 0x0F00) >> 8] = (c8->V[(c8->opcode & 0x00F0) >> 4]);
+                    }
                     break;
 
                 default:
@@ -362,9 +377,11 @@ int emulateCycle(chip8 *c8) {
                     c8->I = c8->V[(c8->opcode & 0x0F00) >> 8] * 0x5;
                     break;
 
-                    // TODO: Explain this
                 case 0x0033:
                     // FX33: Store the binary-coded decimal equivalent of the value stored in register VX at addresses I, I+1, and I+2
+                    // I     = Hundreds digit of decimal equivalent
+                    // I + 1 = Tens digit of decimal equivalent
+                    // I + 2 = Ones digit of decimal equivalent
                     c8->memory[c8->I]     =  c8->V[(c8->opcode & 0x0F00) >> 8] / 100;
                     c8->memory[c8->I + 1] = (c8->V[(c8->opcode & 0x0F00) >> 8] / 10) % 10;
                     c8->memory[c8->I + 2] = (c8->V[(c8->opcode & 0x0F00) >> 8] % 100) % 10;

@@ -9,7 +9,8 @@ int8_t decodeKey(SDL_Keycode);
 
 int main(int argc, char *argv[]) {
     const unsigned int SCALE = 5;
-    const unsigned int FPS_CAP = 360;
+    const unsigned int CYCLES_PER_SECOND = 720;
+    const bool MODERN_COMPAT = true;
 
     srand(time(NULL));
 
@@ -20,7 +21,7 @@ int main(int argc, char *argv[]) {
 
     chip8 emulator;
     char *filename = argv[1];
-    if(initialize(&emulator, filename) != 0) {
+    if(initialize(&emulator, filename, MODERN_COMPAT) != 0) {
         return -1;
     }
 
@@ -132,12 +133,12 @@ int main(int argc, char *argv[]) {
         }
 
         // Limit the FPS
-        // Every frame should take (1000 ms) / FPS_CAP ticks to complete
+        // Every frame should take (1000 ms) / CYCLES_PER_SECOND ticks to complete
         // If they take less, sleep for the number of ticks left over
         frameEndTick = SDL_GetTicks();
         frameChange = frameEndTick - frameStartTick;
-        if(frameChange < 1000 / FPS_CAP) {
-            SDL_Delay((1000 / FPS_CAP) - frameChange);
+        if(frameChange < 1000 / CYCLES_PER_SECOND) {
+            SDL_Delay((1000 / CYCLES_PER_SECOND) - frameChange);
         }
     }
 
