@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #define I_MAX(A, B) (A > B ? A : B)
 
 typedef struct {
@@ -25,6 +26,9 @@ typedef struct {
     uint8_t delayTimer;
     uint8_t soundTimer;
     bool modernCompat;
+    struct timespec previousDelayTimerTick;
+    struct timespec previousSoundTimerTick;
+    struct timespec currentTime;
 } chip8;
 
 int initialize(chip8 *c8, char *filename, bool modernCompat);

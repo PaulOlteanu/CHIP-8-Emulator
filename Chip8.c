@@ -51,6 +51,8 @@ int initialize(chip8 *c8, char *filename, bool modernCompat) {
     c8->keyWait        = false;
     c8->awaitingRedraw = false;
     c8->modernCompat   = modernCompat;
+    clock_gettime(CLOCK_REALTIME, &(c8->previousDelayTimerTick));
+    clock_gettime(CLOCK_REALTIME, &(c8->previousSoundTimerTick));
 
     // Clear things
     for(int i = 0; i < 64 * 32; i++) {
@@ -418,7 +420,13 @@ int emulateCycle(chip8 *c8) {
             break;
     }
 
-    if(c8->delayTimer > 0) {
+    clock_gettime(CLOCK_REALTIME, &(c8->currentTime));
+    double diff = (c8->currentTime).tv_sec - (c8->previousDelayTimerTick).tv_sec
+                + ((c8->currentTime).tv_nsec - (c8->previousDelayTimerTick).tv_nsec) / 1E9;
+
+    printf("DIFFERENCE: %lf\n", diff);
+    if(((c8->currentTime.tv_sec + c8->currentTime.tv_nsec) - (c8->previousDelayTimerTick.tv_sec + c8->previousDelayTimerTick.tv_nsec)) / 1E9 >= 1/60 && c8->delayTimer > 0) {
+        clock_gettime(CLOCK_REALTIME, &(c8->previousDelayTimerTick));
         c8->delayTimer--;
     }
     if(c8->soundTimer > 0) {

@@ -9,7 +9,7 @@ int8_t decodeKey(SDL_Keycode);
 
 int main(int argc, char *argv[]) {
     const unsigned int SCALE = 5;
-    const unsigned int CYCLES_PER_SECOND = 720;
+    const unsigned int CYCLES_PER_SECOND = 500;
     const bool MODERN_COMPAT = true;
 
     srand(time(NULL));
@@ -112,6 +112,8 @@ int main(int argc, char *argv[]) {
             SDL_Quit();
             return -1;
         }
+
+        /* printf("Delay Timer: %d\n", emulator.delayTimer); */
 
         if (emulator.awaitingRedraw) {
             for (int i = 0; i < 64 * 32; i++) {
