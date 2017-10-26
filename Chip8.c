@@ -421,15 +421,15 @@ int emulateCycle(chip8 *c8) {
     }
 
     clock_gettime(CLOCK_REALTIME, &(c8->currentTime));
-    double diff = (c8->currentTime).tv_sec - (c8->previousDelayTimerTick).tv_sec
-                + ((c8->currentTime).tv_nsec - (c8->previousDelayTimerTick).tv_nsec) / 1E9;
+    double delayDiff = (c8->currentTime).tv_sec - (c8->previousDelayTimerTick).tv_sec + ((c8->currentTime).tv_nsec - (c8->previousDelayTimerTick).tv_nsec) / 1E9;
 
-    printf("DIFFERENCE: %lf\n", diff);
-    if(((c8->currentTime.tv_sec + c8->currentTime.tv_nsec) - (c8->previousDelayTimerTick.tv_sec + c8->previousDelayTimerTick.tv_nsec)) / 1E9 >= 1/60 && c8->delayTimer > 0) {
+    if(delayDiff >= 1.0/60 && c8->delayTimer > 0) {
         clock_gettime(CLOCK_REALTIME, &(c8->previousDelayTimerTick));
         c8->delayTimer--;
     }
-    if(c8->soundTimer > 0) {
+
+    double soundDiff = (c8->currentTime).tv_sec - (c8->previousSoundTimerTick).tv_sec + ((c8->currentTime).tv_nsec - (c8->previousSoundTimerTick).tv_nsec) / 1E9;
+    if(soundDiff >= 1.0/60 && c8->soundTimer > 0) {
         if(c8->soundTimer == 1) {
             // TODO: Make sound
         }
